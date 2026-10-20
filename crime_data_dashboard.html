@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crime Intelligence Dashboard - จังหวัดเชียงใหม่</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        crime: {
+                            low: '#10b981',
+                            mid: '#f59e0b',
+                            high: '#ef4444',
+                            critical: '#881337'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Sarabun', 'Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Heatmap Plugin -->
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Firebase SDK Modules -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'crime-intelligence-chiangmai';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "demo-api-key",
+            authDomain: "demo.firebaseapp.com",
+            projectId: "demo-project",
+            storageBucket: "demo.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:demo"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.firebaseApp = { app, auth, db, appId, collection, doc, setDoc, onSnapshot, addDoc, query };
+    </script>
+
+    <style>
+        body { font-family: 'Sarabun', 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.5); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.8); }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-950 text-gray-800 dark:text-gray-100 transition-colors duration-300 min-h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 sticky top-0 z-40 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <!-- Brand / Logo -->
+            <div class="flex items-center gap-3">
+                <div class="bg-red-600 dark:bg-red-700 text-white p-2.5 rounded-2xl shadow-lg flex items-center justify-center">
+                    <i class="fa-solid fa-shield-halved text-xl"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-bold text-lg leading-tight tracking-wide bg-gradient-to-r from-red-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                            Chiang Mai Crime Intelligence
+                        </h1>
+                        <span class="inline-flex items-center gap-1 bg-red-500/10 text-red-500 border border-red-500/20 px-2 py-0.5 rounded-full text-[10px] font-semibold animate-pulse">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> LIVE REALTIME
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">ระบบเฝ้าระวังและวิเคราะห์สถิติอาชญากรรม จ.เชียงใหม่</p>
+                </div>
+            </div>
+
+            <!-- Quick Controls & Actions -->
+            <div class="flex items-center gap-2">
+                <!-- Auto Simulation Status Badge -->
+                <div id="sim-status" class="hidden sm:flex items-center gap-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-xl text-xs font-medium">
+                    <i class="fa-solid fa-arrows-rotate animate-spin text-[11px]"></i>
+                    <span>ระบบจำลองสตรีมมิ่งเชียงใหม่เปิดใช้งานอยู่</span>
+                </div>
+
+                <!-- Report Incident Button -->
+                <button onclick="openReportModal()" class="bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3.5 py-2 rounded-xl text-xs font-semibold shadow-lg shadow-red-600/30 transition flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span class="hidden md:inline">แจ้งเหตุอาชญากรรม</span>
+                </button>
+
+                <!-- Theme Toggle Button -->
+                <button id="theme-toggle" class="p-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                    <i class="fa-solid fa-moon dark:hidden"></i>
+                    <i class="fa-solid fa-sun hidden dark:block text-amber-400"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 space-y-6">
+
+        <!-- Top Statistics Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Card 1: Total Incidents -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">เหตุการณ์ทั้งหมด (เชียงใหม่)</span>
+                    <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                        <i class="fa-solid fa-folder-open text-sm"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-total" class="text-2xl font-bold text-gray-900 dark:text-white">0</span>
+                    <span class="text-xs text-emerald-500 font-semibold"><i class="fa-solid fa-arrow-up"></i> Live</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-1">ข้อมูลในเขต จ.เชียงใหม่ เข้าสู่ DB</p>
+            </div>
+
+            <!-- Card 2: Critical / Violence Risk -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">คดีความรุนแรงสูง (High Risk)</span>
+                    <div class="w-8 h-8 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center">
+                        <i class="fa-solid fa-fire text-sm"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-critical" class="text-2xl font-bold text-red-600 dark:text-red-400">0</span>
+                    <span id="stat-critical-pct" class="text-xs text-red-500 font-semibold">0%</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-1">เหตุเกี่ยวกับชีวิต ร่างกาย และอาวุธ</p>
+            </div>
+
+            <!-- Card 3: Top Hotspot Zone -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">อำเภอเฝ้าระวังสูงสุด</span>
+                    <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                        <i class="fa-solid fa-map-pin text-sm"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-hotspot" class="text-xl font-bold text-gray-900 dark:text-white truncate">อ.เมืองเชียงใหม่</span>
+                </div>
+                <p id="stat-hotspot-sub" class="text-[11px] text-gray-400 mt-1">ความหนาแน่นเหตุการณ์สูงที่สุด</p>
+            </div>
+
+            <!-- Card 4: Most Common Type -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">ประเภทที่เกิดขึ้นบ่อย</span>
+                    <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                        <i class="fa-solid fa-chart-pie text-sm"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-top-type" class="text-xl font-bold text-gray-900 dark:text-white truncate">ลักทรัพย์/วิ่งราว</span>
+                </div>
+                <p id="stat-top-type-sub" class="text-[11px] text-gray-400 mt-1">สัดส่วนส่วนใหญ่ของคดีในเชียงใหม่</p>
+            </div>
+        </div>
+
+        <!-- Filter & Search Control Panel -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-sm flex flex-wrap lg:flex-nowrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto flex-1">
+                <!-- Search Box -->
+                <div class="relative min-w-[200px] flex-1">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                    <input type="text" id="filter-search" placeholder="ค้นหาตามสถานที่ (เช่น นิมมาน, ประตูท่าแพ...)" 
+                        class="w-full bg-gray-50 dark:bg-gray-800 text-xs pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <!-- Category Filter -->
+                <select id="filter-category" class="bg-gray-50 dark:bg-gray-800 text-xs px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="ALL">ประเภทอาชญากรรมทั้งหมด</option>
+                    <option value="ทรัพย์สิน">ลักทรัพย์ / ชิงทรัพย์ / วิ่งราว</option>
+                    <option value="ทำร้ายร่างกาย">ทำร้ายร่างกาย / ทำร้ายชีวิต</option>
+                    <option value="ยาเสพติด">ยาเสพติด / สิ่งผิดกฎหมาย</option>
+                    <option value="ไซเบอร์">อาชญากรรมทางเทคโนโลยี/สแกมเมอร์</option>
+                    <option value="จราจร/อุบัติเหตุ">จราจร / เฉี่ยวชนแล้วหนี</option>
+                </select>
+
+                <!-- District Filter for Chiang Mai -->
+                <select id="filter-province" class="bg-gray-50 dark:bg-gray-800 text-xs px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="ALL">ทุกอำเภอ (ทั่วเชียงใหม่)</option>
+                    <option value="อ.เมืองเชียงใหม่">อ.เมืองเชียงใหม่</option>
+                    <option value="อ.แม่ริม">อ.แม่ริม</option>
+                    <option value="อ.หางดง">อ.หางดง</option>
+                    <option value="อ.สันทราย">อ.สันทราย</option>
+                    <option value="อ.สารภี">อ.สารภี</option>
+                    <option value="อ.ฝาง">อ.ฝาง</option>
+                    <option value="อ.จอมทอง">อ.จอมทอง</option>
+                </select>
+
+                <!-- Severity Filter -->
+                <select id="filter-severity" class="bg-gray-50 dark:bg-gray-800 text-xs px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="ALL">ระดับความรุนแรงทั้งหมด</option>
+                    <option value="high">ความรุนแรงสูง (High)</option>
+                    <option value="medium">ความรุนแรงปานกลาง (Medium)</option>
+                    <option value="low">ความรุนแรงต่ำ (Low)</option>
+                </select>
+            </div>
+
+            <!-- Reset Filters -->
+            <button id="reset-filters-btn" class="bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-xl text-xs font-semibold transition shrink-0">
+                <i class="fa-solid fa-arrow-rotate-left mr-1"></i> ล้างตัวกรอง
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Columns: Map Display & Heatmap -->
+            <div class="lg:col-span-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-4 shadow-sm flex flex-col h-[520px]">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                            <i class="fa-solid fa-map-location-dot"></i>
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-sm text-gray-900 dark:text-white">แผนที่ความหนาแน่น จ.เชียงใหม่ (Chiang Mai Heatmap)</h2>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400">แสดงสถิติความถี่เหตุการณ์และพิกัดในพื้นที่จังหวัดเชียงใหม่</p>
+                        </div>
+                    </div>
+
+                    <!-- Map Toggle Layer Control -->
+                    <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+                        <button id="btn-mode-markers" class="bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm transition">
+                            <i class="fa-solid fa-location-dot mr-1"></i> มาร์กเกอร์
+                        </button>
+                        <button id="btn-mode-heatmap" class="text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white px-2.5 py-1 rounded-lg text-xs font-semibold transition">
+                            <i class="fa-solid fa-fire mr-1"></i> Heatmap
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Leaflet Map Canvas -->
+                <div id="crime-map" class="w-full flex-1 rounded-2xl overflow-hidden z-10 border border-gray-200 dark:border-gray-800"></div>
+            </div>
+
+            <!-- Right 1 Column: Realtime Feed Stream -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-4 shadow-sm flex flex-col h-[520px]">
+                <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="p-2 bg-red-500/10 text-red-500 rounded-xl">
+                            <i class="fa-solid fa-rss animate-pulse"></i>
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-sm text-gray-900 dark:text-white">Live Feed สตรีมมิ่งเชียงใหม่</h2>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400">การรับแจ้งเหตุเข้าสู่ระบบในเวลาจริง</p>
+                        </div>
+                    </div>
+                    <span id="feed-count-badge" class="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[10px] font-mono px-2 py-1 rounded-lg">0 เหตุการณ์</span>
+                </div>
+
+                <!-- Real-time Feed Scroll Container -->
+                <div id="live-feed-list" class="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+                    <div class="text-center py-12 text-gray-400 text-xs">
+                        <i class="fa-solid fa-spinner animate-spin text-lg mb-2"></i>
+                        <p>กำลังเชื่อมต่อระบบ Real-time Stream...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Chart 1: Crime Category Distribution -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-indigo-500"></i> สัดส่วนประเภทคดีในเชียงใหม่ (Category Breakdown)
+                    </h3>
+                </div>
+                <div class="relative h-64">
+                    <canvas id="chart-category"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Regional/Provinces Comparison -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                        <i class="fa-solid fa-chart-column text-emerald-500"></i> สถิติแยกตามรายอำเภอ (Chiang Mai Districts)
+                    </h3>
+                </div>
+                <div class="relative h-64">
+                    <canvas id="chart-provinces"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal: Report Incident -->
+    <div id="report-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden p-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative text-gray-800 dark:text-gray-100">
+            <button onclick="closeReportModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-white">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-3 bg-red-600 text-white rounded-2xl">
+                    <i class="fa-solid fa-shield-cat text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold">แจ้งเหตุอาชญากรรม (จังหวัดเชียงใหม่)</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">บันทึกเหตุการณ์เข้าสู่ระบบวิเคราะห์ข้อมูลพื้นที่</p>
+                </div>
+            </div>
+
+            <form id="report-form" onsubmit="handleIncidentSubmit(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">ประเภทอาชญากรรม</label>
+                    <select id="form-category" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500">
+                        <option value="ทรัพย์สิน">ลักทรัพย์ / ชิงทรัพย์ / วิ่งราว</option>
+                        <option value="ทำร้ายร่างกาย">ทำร้ายร่างกาย / ทำร้ายชีวิต</option>
+                        <option value="ยาเสพติด">ยาเสพติด / สิ่งผิดกฎหมาย</option>
+                        <option value="ไซเบอร์">อาชญากรรมทางเทคโนโลยี / สแกมเมอร์</option>
+                        <option value="จราจร/อุบัติเหตุ">จราจร / เฉี่ยวชนแล้วหนี</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">อำเภอ (เชียงใหม่)</label>
+                        <select id="form-province" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500">
+                            <option value="อ.เมืองเชียงใหม่">อ.เมืองเชียงใหม่</option>
+                            <option value="อ.แม่ริม">อ.แม่ริม</option>
+                            <option value="อ.หางดง">อ.หางดง</option>
+                            <option value="อ.สันทราย">อ.สันทราย</option>
+                            <option value="อ.สารภี">อ.สารภี</option>
+                            <option value="อ.ฝาง">อ.ฝาง</option>
+                            <option value="อ.จอมทอง">อ.จอมทอง</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">ระดับความรุนแรง</label>
+                        <select id="form-severity" required class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500">
+                            <option value="low">ต่ำ (Low Risk)</option>
+                            <option value="medium" selected>ปานกลาง (Medium Risk)</option>
+                            <option value="high">สูง (High Risk / Danger)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">ระบุสถานที่ / ละแวกเกิดเหตุ</label>
+                    <input type="text" id="form-location" required placeholder="เช่น ถนนนิมมานฯ, ตลาดนัดกาดหน้ามอ, ซอยหลังวัดพระสิงห์" class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">รายละเอียดเหตุการณ์</label>
+                    <textarea id="form-description" rows="3" required placeholder="อธิบายรายละเอียดโดยย่อ..." class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <button type="button" onclick="closeReportModal()" class="w-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 py-2.5 rounded-xl font-semibold text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+                        ยกเลิก
+                    </button>
+                    <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-semibold text-xs shadow-lg shadow-red-600/30 transition">
+                        ยืนยันการบันทึก
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-notify" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+        <div class="bg-gray-900 border border-gray-800 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3">
+            <div id="toast-icon" class="p-2 bg-red-500/20 text-red-500 rounded-xl text-xs">
+                <i class="fa-solid fa-bell"></i>
+            </div>
+            <div>
+                <div id="toast-title" class="text-xs font-bold">แจ้งเตือนเหตุการณ์ใหม่</div>
+                <div id="toast-body" class="text-[11px] text-gray-400">รายละเอียดข้อมูล...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Coordinates for Chiang Mai Districts
+        const PROVINCE_COORDS = {
+            "อ.เมืองเชียงใหม่": [18.7883, 98.9853],
+            "อ.แม่ริม": [18.9142, 98.9482],
+            "อ.หางดง": [18.6868, 98.9174],
+            "อ.สันทราย": [18.8471, 99.0435],
+            "อ.สารภี": [18.7139, 99.0345],
+            "อ.ฝาง": [19.9172, 99.2139],
+            "อ.จอมทอง": [18.4168, 98.6801]
+        };
+
+        // Chiang Mai Specific Initial Data
+        const SEED_INCIDENTS = [
+            {
+                id: 'seed-1',
+                category: 'ทรัพย์สิน',
+                province: 'อ.เมืองเชียงใหม่',
+                location: 'ถนนนิมมานเหมินท์ ซอย 7',
+                description: 'คนร้ายขี่รถจักรยานยนต์ประกบวิ่งราวทรัพย์นักท่องเที่ยว',
+                severity: 'medium',
+                lat: 18.7962,
+                lng: 98.9660,
+                timestamp: Date.now() - 1000 * 60 * 15
+            },
+            {
+                id: 'seed-2',
+                category: 'ทำร้ายร่างกาย',
+                province: 'อ.เมืองเชียงใหม่',
+                location: 'ย่านประตูท่าแพ',
+                description: 'เหตุทะเลาะวิวาทหน้าสถานบันเทิง มีผู้บาดเจ็บเล็กน้อย',
+                severity: 'high',
+                lat: 18.7883,
+                lng: 98.9931,
+                timestamp: Date.now() - 1000 * 60 * 40
+            },
+            {
+                id: 'seed-3',
+                category: 'ยาเสพติด',
+                province: 'อ.ฝาง',
+                location: 'ด่านตรวจความมั่นคง ต.แม่งอน',
+                description: 'เจ้าหน้าที่เข้าสกัดจับและยึดของกลางสิ่งผิดกฎหมาย',
+                severity: 'high',
+                lat: 19.8900,
+                lng: 99.1800,
+                timestamp: Date.now() - 1000 * 60 * 80
+            },
+            {
+                id: 'seed-4',
+                category: 'จราจร/อุบัติเหตุ',
+                province: 'อ.สันทราย',
+                location: 'สี่แยกรวมโชค',
+                description: 'อุบัติเหตุรถจักรยานยนต์เฉี่ยวชนแล้วคู่กรณีหลบหนี',
+                severity: 'medium',
+                lat: 18.8235,
+                lng: 99.0112,
+                timestamp: Date.now() - 1000 * 60 * 120
+            },
+            {
+                id: 'seed-5',
+                category: 'ไซเบอร์',
+                province: 'อ.เมืองเชียงใหม่',
+                location: 'แถบมหาวิทยาลัยเชียงใหม่ (กาดหน้ามอ)',
+                description: 'แจ้งเตือนมิจฉาชีพหลอกลวงซื้อขายสินค้าออนไลน์ในกลุ่มนักศึกษา',
+                severity: 'low',
+                lat: 18.8078,
+                lng: 98.9555,
+                timestamp: Date.now() - 1000 * 60 * 180
+            },
+            {
+                id: 'seed-6',
+                category: 'ทรัพย์สิน',
+                province: 'อ.หางดง',
+                location: 'ย่านกาดฝรั่ง บิ๊กซีหางดง',
+                description: 'งัดแงะหมวกกันน็อคและสิ่งของใต้เบาะรถจักรยานยนต์',
+                severity: 'low',
+                lat: 18.6912,
+                lng: 98.9245,
+                timestamp: Date.now() - 1000 * 60 * 240
+            }
+        ];
+
+        let incidentsData = [...SEED_INCIDENTS];
+        let map = null;
+        let markersGroup = [];
+        let heatLayer = null;
+        let mapDisplayMode = 'markers';
+        let categoryChart = null;
+        let provinceChart = null;
+        let currentUser = null;
+
+        window.addEventListener('load', async () => {
+            initTheme();
+            initMap();
+            initCharts();
+            setupEventListeners();
+            
+            await initFirebaseRealtime();
+            startRealtimeSimulation();
+        });
+
+        function initTheme() {
+            const themeToggleBtn = document.getElementById('theme-toggle');
+            themeToggleBtn.addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+            });
+        }
+
+        function initMap() {
+            // Bounds for Chiang Mai province
+            const southWest = L.latLng(17.2, 97.8);
+            const northEast = L.latLng(20.2, 100.2);
+            const cmBounds = L.latLngBounds(southWest, northEast);
+
+            // Centered specifically on Chiang Mai city (18.7883, 98.9853) with bounds limit
+            map = L.map('crime-map', {
+                zoomControl: false,
+                minZoom: 9,
+                maxBounds: cmBounds,
+                maxBoundsViscosity: 0.9,
+                worldCopyJump: false
+            }).setView([18.7883, 98.9853], 11);
+
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // Using ESRI Topo Tile Layer
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 18,
+                minZoom: 9,
+                bounds: cmBounds,
+                attribution: 'Tiles &copy; Esri &mdash; Chiang Mai Crime Data Intelligence'
+            }).addTo(map);
+
+            renderMapLayers();
+        }
+
+        function renderMapLayers() {
+            if (!map) return;
+
+            markersGroup.forEach(m => map.removeLayer(m));
+            markersGroup = [];
+
+            if (heatLayer) {
+                map.removeLayer(heatLayer);
+                heatLayer = null;
+            }
+
+            const filtered = getFilteredData();
+
+            if (mapDisplayMode === 'markers') {
+                filtered.forEach(item => {
+                    const color = item.severity === 'high' ? '#ef4444' : (item.severity === 'medium' ? '#f59e0b' : '#10b981');
+                    
+                    const markerIcon = L.divIcon({
+                        className: 'custom-crime-marker',
+                        html: `<div class="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-white shadow-lg text-[10px]" style="background-color: ${color}">
+                                 <i class="fa-solid fa-triangle-exclamation"></i>
+                               </div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+
+                    const marker = L.marker([item.lat, item.lng], { icon: markerIcon }).addTo(map);
+                    
+                    const popupContent = `
+                        <div class="p-2 text-xs font-sans">
+                            <div class="flex items-center gap-1.5 mb-1">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold text-white ${item.severity === 'high' ? 'bg-red-600' : 'bg-amber-500'}">${item.category}</span>
+                                <span class="text-gray-400 text-[10px]">${new Date(item.timestamp).toLocaleTimeString('th-TH')}</span>
+                            </div>
+                            <div class="font-bold text-gray-900 mb-0.5">${item.location}</div>
+                            <div class="text-gray-600 text-[11px] mb-1">${item.description}</div>
+                            <div class="text-[10px] text-gray-400"><i class="fa-solid fa-location-dot"></i> ${item.province}</div>
+                        </div>
+                    `;
+
+                    marker.bindPopup(popupContent);
+                    markersGroup.push(marker);
+                });
+            } else if (mapDisplayMode === 'heatmap') {
+                const heatPoints = filtered.map(item => [
+                    item.lat, 
+                    item.lng, 
+                    item.severity === 'high' ? 1.0 : (item.severity === 'medium' ? 0.6 : 0.3)
+                ]);
+
+                if (typeof L.heatLayer === 'function') {
+                    heatLayer = L.heatLayer(heatPoints, {
+                        radius: 25,
+                        blur: 15,
+                        maxZoom: 14,
+                        gradient: { 0.4: 'blue', 0.65: 'lime', 1: 'red' }
+                    }).addTo(map);
+                }
+            }
+        }
+
+        function initCharts() {
+            const ctx1 = document.getElementById('chart-category').getContext('2d');
+            categoryChart = new Chart(ctx1, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: ['#6366f1', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { family: 'Sarabun', size: 11 } } }
+                    }
+                }
+            });
+
+            const ctx2 = document.getElementById('chart-provinces').getContext('2d');
+            provinceChart = new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'จำนวนเหตุการณ์',
+                        data: [],
+                        backgroundColor: '#4f46e5',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+
+            updateCharts();
+        }
+
+        function updateCharts() {
+            const data = getFilteredData();
+
+            const catCounts = {};
+            const provCounts = {};
+
+            data.forEach(item => {
+                catCounts[item.category] = (catCounts[item.category] || 0) + 1;
+                provCounts[item.province] = (provCounts[item.province] || 0) + 1;
+            });
+
+            categoryChart.data.labels = Object.keys(catCounts);
+            categoryChart.data.datasets[0].data = Object.values(catCounts);
+            categoryChart.update();
+
+            provinceChart.data.labels = Object.keys(provCounts);
+            provinceChart.data.datasets[0].data = Object.values(provCounts);
+            provinceChart.update();
+
+            document.getElementById('stat-total').innerText = data.length;
+            const criticalCount = data.filter(d => d.severity === 'high').length;
+            document.getElementById('stat-critical').innerText = criticalCount;
+            document.getElementById('stat-critical-pct').innerText = data.length ? Math.round((criticalCount / data.length) * 100) + '%' : '0%';
+
+            let topProv = '-';
+            let maxProvCount = 0;
+            Object.entries(provCounts).forEach(([prov, count]) => {
+                if (count > maxProvCount) {
+                    maxProvCount = count;
+                    topProv = prov;
+                }
+            });
+            document.getElementById('stat-hotspot').innerText = topProv;
+            document.getElementById('stat-hotspot-sub').innerText = `พบเหตุการณ์ปักหมุด ${maxProvCount} ครั้ง`;
+
+            let topCat = '-';
+            let maxCatCount = 0;
+            Object.entries(catCounts).forEach(([cat, count]) => {
+                if (count > maxCatCount) {
+                    maxCatCount = count;
+                    topCat = cat;
+                }
+            });
+            document.getElementById('stat-top-type').innerText = topCat;
+            document.getElementById('stat-top-type-sub').innerText = `คิดเป็น ${data.length ? Math.round((maxCatCount / data.length) * 100) : 0}% ของคดีทั้งหมด`;
+        }
+
+        function getFilteredData() {
+            const search = document.getElementById('filter-search').value.toLowerCase();
+            const category = document.getElementById('filter-category').value;
+            const province = document.getElementById('filter-province').value;
+            const severity = document.getElementById('filter-severity').value;
+
+            return incidentsData.filter(item => {
+                const matchSearch = item.location.toLowerCase().includes(search) || item.description.toLowerCase().includes(search);
+                const matchCategory = category === 'ALL' || item.category === category;
+                const matchProvince = province === 'ALL' || item.province === province;
+                const matchSeverity = severity === 'ALL' || item.severity === severity;
+
+                return matchSearch && matchCategory && matchProvince && matchSeverity;
+            });
+        }
+
+        function renderLiveFeed() {
+            const listEl = document.getElementById('live-feed-list');
+            const data = getFilteredData().sort((a, b) => b.timestamp - a.timestamp);
+
+            document.getElementById('feed-count-badge').innerText = `${data.length} เหตุการณ์`;
+
+            if (data.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-12 text-gray-400 text-xs">ไม่พบข้อมูลตามเงื่อนไขการกรอง</div>`;
+                return;
+            }
+
+            listEl.innerHTML = data.map(item => {
+                const timeStr = new Date(item.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                const sevBadge = item.severity === 'high' 
+                    ? '<span class="bg-red-500/10 text-red-500 border border-red-500/20 px-2 py-0.5 rounded text-[10px] font-bold">ความรุนแรงสูง</span>'
+                    : (item.severity === 'medium'
+                        ? '<span class="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded text-[10px] font-bold">ปานกลาง</span>'
+                        : '<span class="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-bold">ต่ำ</span>');
+
+                return `
+                    <div class="p-3 bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 rounded-2xl hover:border-indigo-500/40 transition">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-bold text-xs text-gray-900 dark:text-white">${item.category}</span>
+                                ${sevBadge}
+                            </div>
+                            <span class="text-[10px] text-gray-400 font-mono"><i class="fa-regular fa-clock mr-1"></i>${timeStr}</span>
+                        </div>
+                        <p class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-0.5">${item.location}</p>
+                        <p class="text-[11px] text-gray-600 dark:text-gray-300 line-clamp-2 mb-1.5">${item.description}</p>
+                        <div class="flex items-center justify-between text-[10px] text-gray-400 border-t border-gray-200/40 dark:border-gray-700/40 pt-1.5">
+                            <span><i class="fa-solid fa-location-dot text-red-500"></i> ${item.province}</span>
+                            <button onclick="zoomToIncident(${item.lat}, ${item.lng})" class="text-indigo-500 hover:underline font-semibold">
+                                แสดงบนแผนที่ <i class="fa-solid fa-chevron-right text-[8px]"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function zoomToIncident(lat, lng) {
+            if (map) {
+                map.setView([lat, lng], 15, { animate: true });
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('filter-search').addEventListener('input', updateAllViews);
+            document.getElementById('filter-category').addEventListener('change', updateAllViews);
+            document.getElementById('filter-province').addEventListener('change', updateAllViews);
+            document.getElementById('filter-severity').addEventListener('change', updateAllViews);
+
+            document.getElementById('reset-filters-btn').addEventListener('click', () => {
+                document.getElementById('filter-search').value = '';
+                document.getElementById('filter-category').value = 'ALL';
+                document.getElementById('filter-province').value = 'ALL';
+                document.getElementById('filter-severity').value = 'ALL';
+                updateAllViews();
+            });
+
+            document.getElementById('btn-mode-markers').addEventListener('click', (e) => {
+                mapDisplayMode = 'markers';
+                e.currentTarget.className = 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm transition';
+                document.getElementById('btn-mode-heatmap').className = 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white px-2.5 py-1 rounded-lg text-xs font-semibold transition';
+                renderMapLayers();
+            });
+
+            document.getElementById('btn-mode-heatmap').addEventListener('click', (e) => {
+                mapDisplayMode = 'heatmap';
+                e.currentTarget.className = 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm transition';
+                document.getElementById('btn-mode-markers').className = 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white px-2.5 py-1 rounded-lg text-xs font-semibold transition';
+                renderMapLayers();
+            });
+        }
+
+        function updateAllViews() {
+            renderMapLayers();
+            renderLiveFeed();
+            updateCharts();
+        }
+
+        async function initFirebaseRealtime() {
+            if (!window.firebaseApp) return;
+            const { auth, db, appId, collection, onSnapshot, signInAnonymously, signInWithCustomToken } = window.firebaseApp;
+
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const userCred = await signInWithCustomToken(auth, __initial_auth_token);
+                    currentUser = userCred.user;
+                } else {
+                    const userCred = await signInAnonymously(auth);
+                    currentUser = userCred.user;
+                }
+
+                const crimesCol = collection(db, 'artifacts', appId, 'public', 'data', 'crimes_cm');
+                
+                onSnapshot(crimesCol, (snapshot) => {
+                    const firestoreDocs = [];
+                    snapshot.forEach(doc => {
+                        firestoreDocs.push({ id: doc.id, ...doc.data() });
+                    });
+
+                    if (firestoreDocs.length > 0) {
+                        incidentsData = [...firestoreDocs, ...SEED_INCIDENTS];
+                        updateAllViews();
+                    }
+                }, (error) => {
+                    console.error("Firestore error:", error);
+                });
+
+            } catch (err) {
+                console.warn("Firebase Auth / Sync Fallback:", err);
+            }
+        }
+
+        async function handleIncidentSubmit(e) {
+            e.preventDefault();
+
+            const category = document.getElementById('form-category').value;
+            const province = document.getElementById('form-province').value;
+            const severity = document.getElementById('form-severity').value;
+            const location = document.getElementById('form-location').value;
+            const description = document.getElementById('form-description').value;
+
+            const baseCoords = PROVINCE_COORDS[province] || PROVINCE_COORDS["อ.เมืองเชียงใหม่"];
+            const lat = baseCoords[0] + (Math.random() - 0.5) * 0.03;
+            const lng = baseCoords[1] + (Math.random() - 0.5) * 0.03;
+
+            const newIncident = {
+                category,
+                province,
+                severity,
+                location,
+                description,
+                lat,
+                lng,
+                timestamp: Date.now()
+            };
+
+            incidentsData.unshift({ id: 'user-' + Date.now(), ...newIncident });
+            updateAllViews();
+            closeReportModal();
+            showToast("บันทึกเหตุการณ์สำเร็จ", `${category} - ${location}`);
+
+            if (window.firebaseApp && currentUser) {
+                try {
+                    const { db, appId, collection, addDoc } = window.firebaseApp;
+                    const crimesCol = collection(db, 'artifacts', appId, 'public', 'data', 'crimes_cm');
+                    await addDoc(crimesCol, newIncident);
+                } catch (err) {
+                    console.error("Error saving to Firestore:", err);
+                }
+            }
+        }
+
+        function openReportModal() {
+            document.getElementById('report-modal').classList.remove('hidden');
+        }
+
+        function closeReportModal() {
+            document.getElementById('report-modal').classList.add('hidden');
+        }
+
+        function showToast(title, body) {
+            const toast = document.getElementById('toast-notify');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-body').innerText = body;
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 4000);
+        }
+
+        function startRealtimeSimulation() {
+            const sampleCategories = ["ทรัพย์สิน", "ทำร้ายร่างกาย", "ยาเสพติด", "ไซเบอร์", "จราจร/อุบัติเหตุ"];
+            const sampleDistricts = ["อ.เมืองเชียงใหม่", "อ.แม่ริม", "อ.หางดง", "อ.สันทราย", "อ.สารภี"];
+            const sampleSeverities = ["low", "medium", "high"];
+            const sampleDescriptions = [
+                "รับแจ้งเหตุขโมยหมวกกันน็อคและทรัพย์สินใต้อานรถจักรยานยนต์",
+                "เกิดอุบัติเหตุเฉี่ยวชนบริเวณทางแยกหลัก เจ้าหน้าที่กำลังเข้าช่วยเหลือ",
+                "แจ้งเตือนพฤติกรรมสแกมเมอร์หลอกมัดจำห้องพักย่านท่องเที่ยว",
+                "สายตรวจสกัดกั้นกลุ่มวัยรุ่นขับขี่รถซิ่งรบกวนยามวิกาล",
+                "ตั้งด่านตรวจค้นพบบุคคลต้องสงสัยพกพาวัตถุผิดกฎหมาย"
+            ];
+
+            setInterval(() => {
+                const dist = sampleDistricts[Math.floor(Math.random() * sampleDistricts.length)];
+                const cat = sampleCategories[Math.floor(Math.random() * sampleCategories.length)];
+                const sev = sampleSeverities[Math.floor(Math.random() * sampleSeverities.length)];
+                const desc = sampleDescriptions[Math.floor(Math.random() * sampleDescriptions.length)];
+                const baseCoords = PROVINCE_COORDS[dist];
+
+                const simIncident = {
+                    id: 'sim-' + Date.now(),
+                    category: cat,
+                    province: dist,
+                    severity: sev,
+                    location: `ย่านชุมชน/ศูนย์การค้า ${dist}`,
+                    description: desc,
+                    lat: baseCoords[0] + (Math.random() - 0.5) * 0.04,
+                    lng: baseCoords[1] + (Math.random() - 0.5) * 0.04,
+                    timestamp: Date.now()
+                };
+
+                incidentsData.unshift(simIncident);
+                updateAllViews();
+                showToast(`[LIVE STREAM] แจ้งเหตุใหม่ (${dist})`, `${cat} - ${simIncident.location}`);
+
+            }, 25000);
+        }
+    </script>
+</body>
+</html>
